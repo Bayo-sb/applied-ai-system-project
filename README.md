@@ -6,8 +6,7 @@ PawPal+ Care Advisor adds an AI care planner to an existing pet-care scheduler. 
 
 ## Original project
 
-The original project is **PawPal+ (Module 2 project)**, a Streamlit pet-care scheduler. An owner enters a daily time budget and their pets, adds care tasks with a duration, priority and repeat frequency, and the scheduler builds a prioritized daily plan with a reason for every choice. It also warns about overlapping tasks, recurs daily and weekly tasks. That code (`pawpal_system.py`) still does all the scheduling. Two small things were added to it: pets now have an optional birth date, and a cat and a dog may share a name. Its original documentation is at the end of this file.
-
+The original project is **PawPal+ (Module 2 project)**, a Streamlit pet-care scheduler. An owner enters a daily time budget and their pets, adds care tasks with a duration, priority and repeat frequency, and the scheduler builds a prioritized daily plan with a reason for every choice. It also warns about overlapping tasks, recurs daily and weekly tasks. That code (`pawpal_system.py`) still does all the scheduling. Two small things were added to it: pets now have an optional birth date, and a cat and a dog may share a name. 
 ## Architecture overview
 
 The data flow is: input, process, output, with checks along the way.
