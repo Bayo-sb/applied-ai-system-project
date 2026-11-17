@@ -61,6 +61,12 @@ class Task:
     scheduled_time: Optional[str] = None
     due_date: Optional[date] = None
     pet_name: str = field(default="", init=False)  # set by Pet.add_task
+    pet_species: str = field(default="", init=False)  # set by Pet.add_task
+
+    @property
+    def pet_label(self) -> str:
+        """The pet's name with its species, e.g. 'Mochi (cat)'. Tells two same-named pets apart."""
+        return f"{self.pet_name} ({self.pet_species})" if self.pet_species else self.pet_name
 
     def __post_init__(self) -> None:
         """Validate the task's fields when it is created."""
@@ -149,6 +155,7 @@ class Pet:
     name: str
     species: str
     tasks: list[Task] = field(default_factory=list)
+    birth_date: Optional[date] = None  # used to work out the pet's life stage
 
     def add_task(self, task: Task) -> None:
         """Add a task to this pet's list. Pending task titles must be unique per pet."""
@@ -156,7 +163,13 @@ class Pet:
         if existing is not None and not existing.completed:
             raise ValueError(f"A task titled '{task.title}' already exists.")
         task.pet_name = self.name
+        task.pet_species = self.species
         self.tasks.append(task)
+
+    @property
+    def label(self) -> str:
+        """The name with the species, e.g. 'Mochi (cat)'. Unique per owner."""
+        return f"{self.name} ({self.species})"
 
     def edit_task(self, title: str, updates: dict) -> None:
         """Find the task by title and apply the given updates."""
@@ -227,22 +240,35 @@ class Owner:
             raise ValueError("Available minutes per day cannot be negative.")
 
     def add_pet(self, pet: Pet) -> None:
-        """Add a pet. Pet names must be unique per owner."""
-        if self.get_pet(pet.name) is not None:
-            raise ValueError(f"A pet named '{pet.name}' already exists.")
+        """Add a pet. A name and species pair must be unique per owner.
+
+        Two pets may share a name if their species differ (a cat and a dog both called Mochi).
+        """
+        if self.get_pet(pet.name, pet.species) is not None:
+            raise ValueError(f"A {pet.species} named '{pet.name}' already exists.")
         self.pets.append(pet)
 
-    def remove_pet(self, name: str) -> None:
-        """Remove the pet with the given name."""
-        pet = self.get_pet(name)
+    def remove_pet(self, name: str, species: Optional[str] = None) -> None:
+        """Remove the pet with the given name (and species, if given)."""
+        pet = self.get_pet(name, species)
         if pet is None:
             raise KeyError(f"No pet named '{name}'.")
         self.pets.remove(pet)
 
-    def get_pet(self, name: str) -> Optional[Pet]:
-        """Return the pet with the given name, or None."""
+    def get_pet(self, name: str, species: Optional[str] = None) -> Optional[Pet]:
+        """Return the pet with the given name (and species, if given), or None.
+
+        Raises ValueError if several pets share the name and no species was given.
+        """
+        matches = [p for p in self.pets if p.name == name and (species is None or p.species == species)]
+        if len(matches) > 1:
+            raise ValueError(f"Several pets are named '{name}'. Say which species.")
+        return matches[0] if matches else None
+
+    def get_pet_by_label(self, label: str) -> Optional[Pet]:
+        """Return the pet whose label ('Mochi (cat)') matches, or None."""
         for pet in self.pets:
-            if pet.name == name:
+            if pet.label == label:
                 return pet
         return None
 
@@ -251,14 +277,24 @@ class Owner:
         return [task for pet in self.pets for task in pet.get_tasks()]
 
     def filter_tasks(
-        self, pet_name: Optional[str] = None, completed: Optional[bool] = None
+        self,
+        pet_name: Optional[str] = None,
+        completed: Optional[bool] = None,
+        pet_label: Optional[str] = None,
     ) -> list[Task]:
         """Return tasks matching the filters. A filter left as None is not applied.
 
         pet_name: only that pet's tasks (raises KeyError if there is no such pet).
+        pet_label: only that pet's tasks, by label such as 'Mochi (cat)'. Use this when two pets
+            share a name.
         completed: True for finished tasks, False for pending ones.
         """
-        if pet_name is not None:
+        if pet_label is not None:
+            pet = self.get_pet_by_label(pet_label)
+            if pet is None:
+                raise KeyError(f"No pet labelled '{pet_label}'.")
+            tasks = pet.get_tasks()
+        elif pet_name is not None:
             pet = self.get_pet(pet_name)
             if pet is None:
                 raise KeyError(f"No pet named '{pet_name}'.")
@@ -287,6 +323,11 @@ class PlannedTask:
         """Return the name of the pet this task belongs to."""
         return self.task.pet_name
 
+    @property
+    def pet_label(self) -> str:
+        """Return the pet's name with its species."""
+        return self.task.pet_label
+
 
 @dataclass
 class SkippedTask:
@@ -299,6 +340,11 @@ class SkippedTask:
     def pet_name(self) -> str:
         """Return the name of the pet this skipped task belongs to."""
         return self.task.pet_name
+
+    @property
+    def pet_label(self) -> str:
+        """Return the pet's name with its species."""
+        return self.task.pet_label
 
 
 @dataclass
@@ -414,6 +460,15 @@ class Scheduler:
             start = parse_clock(item.start_time)
             spans.append((start, start + item.task.duration_minutes, item))
 
+        # Show the species too only where two same-named pets would otherwise look identical.
+        names_with_two_species = {
+            n for n in {i.pet_name for i in items}
+            if len({i.task.pet_species for i in items if i.pet_name == n}) > 1
+        }
+
+        def who(item: PlannedTask) -> str:
+            return item.pet_label if item.pet_name in names_with_two_species else item.pet_name
+
         warnings = []
         for i in range(len(spans)):
             for j in range(i + 1, len(spans)):
@@ -421,9 +476,9 @@ class Scheduler:
                 start_b, end_b, b = spans[j]
                 if start_a < end_b and start_b < end_a:
                     warnings.append(
-                        f"Conflict: '{a.task.title}' ({a.pet_name}, "
+                        f"Conflict: '{a.task.title}' ({who(a)}, "
                         f"{format_clock(start_a)}-{format_clock(end_a)}) overlaps "
-                        f"'{b.task.title}' ({b.pet_name}, "
+                        f"'{b.task.title}' ({who(b)}, "
                         f"{format_clock(start_b)}-{format_clock(end_b)})."
                     )
         return warnings

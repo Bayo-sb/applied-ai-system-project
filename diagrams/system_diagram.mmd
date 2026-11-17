@@ -1,0 +1,64 @@
+%% PawPal+ applied AI system.
+%% Every box is built. There is no fake model: the checks are tested directly and the model is evaluated live.
+flowchart TD
+    %% ---------- Input ----------
+    U["Owner adds a pet<br/>name, species, birth date"]
+    P[("Saved pet records<br/>birth date, tasks<br/>stored on disk")]
+    LS["Life-stage tracker<br/>age from birth date,<br/>stages as defined by a source<br/>banner shown when the app is opened"]
+
+    %% ---------- Process ----------
+    G["Guardrails<br/>validate species and birth date<br/>detect medication and dosage content"]
+    KB[("Care documents<br/>dogs and cats, tagged by<br/>species and life stage<br/>cited sources")]
+    R["Retriever<br/>query by species + life stage<br/>top-k passages with<br/>source and score"]
+    A["LLM agent planner<br/>called with an API key<br/>proposes tasks: frequency, duration,<br/>priority, citation"]
+    C["Compliance check<br/>frequency and priority each supported by<br/>a retrieved passage that applies to this<br/>pet's species and life stage<br/>duration: from the source if stated,<br/>otherwise an estimate within owner's time"]
+    H{{"HUMAN REVIEW<br/>accept or reject each proposed task<br/>failed checks shown with their reason<br/>keep or retire old-stage tasks"}}
+    S["PawPal+ Scheduler<br/>existing Module 2 code"]
+    V["Plan verifier<br/>time budget respected,<br/>skipped HIGH tasks flagged"]
+
+    %% ---------- Output ----------
+    O["Output<br/>daily plan + sources + trace log"]
+    D["Decline with a reason<br/>no guessing"]
+    UN["Own-knowledge tasks<br/>up to 3, labeled UNSOURCED<br/>never HIGH, never medication<br/>never ticked for the owner"]
+
+    %% ---------- Testing ----------
+    T["TESTING<br/>pytest: direct tests of every check,<br/>no model involved<br/>evaluate.py: live runs against<br/>the real model, scored"]
+
+    %% ---------- Main flow ----------
+    U --> P
+    P --> LS
+    U --> G
+    LS -- "new life stage reached" --> G
+    G -- allowed --> R
+    G -- "invalid input" --> D
+    G -- "medication or dosage:<br/>not suggested, ask your vet" --> D
+    C -- "medication content:<br/>removed, ask your vet" --> D
+    KB --> R
+    R -- confident --> A
+    R -- "best score below 0.225 (provisional)<br/>or no document for this<br/>species and life stage" --> D
+    A --> C
+    C -- passes --> H
+    A -- "model's own knowledge" --> UN
+    UN --> H
+    C -- "frequency or priority<br/>not supported" --> D
+    C -- "other failed check:<br/>shown with its reason" --> H
+    H -- approved --> S
+    H -- rejected --> D
+    S --> P
+    S --> V
+    V --> O
+
+    %% ---------- Testing loop ----------
+    T -. test inputs .-> U
+    O -. outputs scored, pass rate reported .-> T
+    T -. existing 54 tests .-> S
+
+    %% ---------- Styling ----------
+    classDef existing fill:#d8f0d8,stroke:#2e7d32,color:#000
+    classDef planned fill:#e8eefc,stroke:#3f51b5,color:#000
+    classDef human fill:#fff3cd,stroke:#b8860b,color:#000
+    classDef test fill:#fde2e2,stroke:#c62828,color:#000
+    classDef flag fill:#ffe0b2,stroke:#e65100,stroke-dasharray: 5 5,color:#000
+    class S,U,P,LS,G,KB,R,A,C,V,O,D,UN existing
+    class H human
+    class T test
